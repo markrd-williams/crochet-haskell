@@ -66,10 +66,6 @@ thenJoin :: [CrochetCode] -> CrochetCode
 thenJoin [] = NoOp
 thenJoin xs = foldl1 thenReduce (thenReduce'' xs)
 
-thenReduce' :: CrochetCode -> [CrochetCode] -> [CrochetCode]
-thenReduce' c [] = [c]
-thenReduce' c xs = minimumByKey (sum . map size) $ map (\(h, t) -> thenReduce c (thenJoin h) : t) (splits xs)
-
 takeCopies :: (Eq a) => [a] -> [a] -> (Int, [a])
 takeCopies ps xs =
   if ps `isPrefixOf` xs
@@ -100,7 +96,7 @@ norm (Dec n) = Dec n
 norm (Then c1 c2) =
   foldr1 (<>) (thenReduce'' un)
   where
-    un = filter (NoOp /=) $ unthen (norm c1) ++ unthen (norm c2)
+    un = map norm $ filter (NoOp /=) $ unthen (norm c1) ++ unthen (norm c2)
 norm (Seq 0 c) = NoOp
 norm (Seq 1 c) = norm c
 norm (Seq n c) =
@@ -161,7 +157,6 @@ instructions nbs = norm $ go [1] [1]
         goal_stitches :: Int
         goal_stitches = length next_row
 
--- TODO: Fix types?
 triple :: [a] -> (a, a, a)
 triple [x, y, z] = (x, y, z)
 
