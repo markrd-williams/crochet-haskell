@@ -20,6 +20,7 @@ data CrochetCode
 instance Semigroup CrochetCode where
   (<>) = Then
 
+
 instance Show CrochetCode where
   show :: CrochetCode -> String
   show NoOp = ""
@@ -29,12 +30,13 @@ instance Show CrochetCode where
   show (Then c1 c2) = show c1 ++ "\n" ++ show c2
   show (Seq n c) = "Seq " ++ show n ++ ":\n  " ++ concatMap (\s -> if s == '\n' then "\n  " else pure s) (show c)
 
+
 size :: CrochetCode -> Int
 size NoOp = 0
 size SC = 1
 size (Inc n) = 1
 size (Dec n) = 1
-size (Seq n c) = size c
+size (Seq n c) = size c + 1
 size (Then c1 c2) = size c1 + size c2
 
 unthen :: CrochetCode -> [CrochetCode]
@@ -98,7 +100,7 @@ norm (Dec n) = Dec n
 norm (Then c1 c2) =
   foldr1 (<>) (thenReduce'' un)
   where
-    un = unthen (norm c1) ++ unthen (norm c2)
+    un = filter (NoOp /=) $ unthen (norm c1) ++ unthen (norm c2)
 norm (Seq 0 c) = NoOp
 norm (Seq 1 c) = norm c
 norm (Seq n c) =
@@ -113,8 +115,7 @@ evenSpacing m n = [i * n `div` m + n `div` (2 * m) | i <- [0 .. m - 1]]
 crochetn :: Int -> CrochetCode
 crochetn x
   | x == 0 = Dec 1
-  | x == 1 = SC
-  | x > 1 = SC <> Inc (x - 1)
+  | x >= 1 = SC <> Inc (x - 1)
   | x < 0 = NoOp
 
 crochetThese :: [Int] -> CrochetCode
@@ -128,36 +129,6 @@ listToBag (x : xs) n = take x b ++ [(b !! x) + 1] ++ drop (x + 1) b
 
 nextRow :: Int -> Int -> CrochetCode
 nextRow current goal = crochetThese $ listToBag (evenSpacing goal current) current
-
-nextRow' :: Int -> Int -> CrochetCode
-nextRow' current goal =
-  if goal == 0
-    then NoOp
-    else case current `compare` goal of
-      EQ -> Seq current SC
-      LT ->
-        let per_hole = goal `div` current
-            extra = goal `mod` current
-         in case extra `compare` 0 of
-              LT -> undefined
-              EQ -> Seq current $ SC <> Inc (per_hole - 1)
-              GT ->
-                let st_spacing = current `div` extra
-                    extra_end = goal `mod` extra
-                 in Seq
-                      extra
-                      (Seq (st_spacing - 1) (SC <> Inc (per_hole - 1)) <> SC <> Inc per_hole)
-                      <> Seq extra_end (SC <> Inc extra_end)
-      GT ->
-        let per_stitch = current `div` goal - 1
-            extra = current `mod` goal
-         in case extra `compare` 0 of
-              LT -> undefined
-              EQ -> Seq goal (Dec per_stitch <> SC)
-              GT ->
-                let st_spacing = goal `div` extra
-                    extra_end = goal `mod` extra
-                 in Seq extra (Seq (st_spacing - 1) (Dec per_stitch <> SC) <> Dec (per_stitch + 1) <> SC) <> Dec extra_end <> SC
 
 neighbours :: [(Float, Float, Float)] -> [(Int, Int, Int)] -> [[Int]]
 neighbours vs [] = replicate (length vs) []
@@ -202,7 +173,7 @@ parseTriangle = triple . map read . take 3 . drop 1 . words
 
 main :: IO ()
 main = do
-  f <- readFile "/home/mark/Documents/hackathon/crochet/data/untitled.off"
+  f <- readFile "/home/mark/Documents/hackathon/crochet/data/epcot.off"
   let lines_of_f = filter (not . null) (lines f)
   let (n_verts : n_faces : n_dontknow : _) :: [Int] = map read $ words (lines_of_f !! 1)
   let vs = map parseVertex $ take n_verts (drop 2 lines_of_f)
