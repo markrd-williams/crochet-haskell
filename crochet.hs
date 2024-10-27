@@ -2,7 +2,7 @@
 module Crochet where
 
 import Data.Char (isAlpha, isNumber)
-import Data.List (delete, union, nub)
+import Data.List (delete, union, nub, inits, minimumBy)
 import System.IO
 import Text.ParserCombinators.ReadP
 
@@ -11,7 +11,7 @@ data CrochetCode
   | SC
   | Seq Int CrochetCode
   | Inc Int
-  | Skip Int
+  | Dec Int
   | Then CrochetCode CrochetCode
   deriving (Eq)
 
@@ -23,11 +23,19 @@ instance Show CrochetCode where
   show :: CrochetCode -> String
   show NoOp = ""
   show SC = "SC"
-  show (Inc n) = "Inc " ++ show n
-  show (Skip n) = "Skip " ++ show n
+  show (Inc n) = "Increase " ++ show n
+  show (Dec n) = "Decrease " ++ show n
   show (Then c1 c2) = show c1 ++ "\n" ++ show c2
   show (Seq n c) = "Seq " ++ show n ++ ":\n  " ++ concatMap (\s -> if s == '\n' then "\n  " else pure s) (show c)
 
+
+size :: CrochetCode -> Int
+size NoOp         = 0
+size SC           = 1
+size (Inc n)      = 1
+size (Dec n)      = 1
+size (Seq n c)    = 1 + size c
+size (Then c1 c2) = size c1 + size c2 + 10000
 
 unthen :: CrochetCode -> [CrochetCode]
 unthen (Then c1 c2) = unthen c1 ++ unthen c2
@@ -36,25 +44,42 @@ unthen c = [c]
 thenReduce :: CrochetCode -> CrochetCode -> [CrochetCode]
 thenReduce NoOp c = [c]
 thenReduce c NoOp = [c]
+thenReduce c c' | c == c' = [Seq 2 c]
 thenReduce (Seq n c) (Seq m c') | c == c' = [Seq (n + m) c]
+thenReduce (Seq n c) (Seq m c') | n == m = [Seq n (c <> c')]
 thenReduce (Seq n c) c' | c == c' = [Seq (n + 1) c]
 thenReduce c' (Seq n c) | c == c' = [Seq (n + 1) c]
 thenReduce (Inc n) (Inc m) = [Inc (n + m)]
-thenReduce (Skip n) (Skip m) = [Skip (n + m)]
-thenReduce c c' | c == c' = [Seq 2 c]
+thenReduce (Dec n) (Dec m) = [Dec (n + m)]
 thenReduce c c' = [c, c']
+
+minimumByKey :: (Ord b, Foldable t) => (a -> b) -> t a -> a
+minimumByKey f = minimumBy (\x y -> f x `compare` f y)
+
+splits :: [a] -> [([a], [a])]
+splits [] = [([], [])]
+splits (x:xs) = ([], x:xs) : [ (x : before, after) | (before, after) <- splits xs ]
+
+thenJoin :: [CrochetCode] -> CrochetCode
+thenJoin [] = NoOp
+thenJoin xs = foldl1 (<>) xs
+
+
 
 thenReduce' :: CrochetCode -> [CrochetCode] -> [CrochetCode]
 thenReduce' c [] = [c]
 thenReduce' c (x : xs) = thenReduce c x ++ xs
+
+-- thenReduce'' :: [CrochetCode] -> CrochetCode
+-- thenReduce'' xs = map (minimumByKey size . (\(h, t) -> thenReduce' (thenJoin h) t)) (splits xs)
 
 norm :: CrochetCode -> CrochetCode
 norm NoOp = NoOp
 norm SC = SC
 norm (Inc 0) = NoOp
 norm (Inc n) = Inc n
-norm (Skip 0) = NoOp
-norm (Skip n) = Skip n
+norm (Dec 0) = NoOp
+norm (Dec n) = Dec n
 norm (Then c1 c2) =
   foldr1 (<>) (foldr thenReduce' [] un)
   where
@@ -73,7 +98,7 @@ evenSpacing m n = [i * n `div` m + n `div` (2 * m) | i <- [0..m-1]]
 
 crochetn :: Int -> CrochetCode
 crochetn x
-  | x == 0 = Skip 1
+  | x == 0 = Dec 1
   | x == 1 = SC
   | x > 1  = SC <> Inc (x - 1)
   | x < 0  = NoOp
@@ -87,9 +112,11 @@ listToBag (x:xs) n = take x b ++ [(b !! x) + 1] ++ drop (x + 1) b
   where
     b = listToBag xs n
 
-
 nextRow :: Int -> Int -> CrochetCode
-nextRow current goal =
+nextRow current goal = crochetThese $ listToBag (evenSpacing goal current) current
+
+nextRow' :: Int -> Int -> CrochetCode
+nextRow' current goal =
   if goal == 0
     then NoOp
     else case
@@ -114,11 +141,11 @@ nextRow current goal =
             extra = current `mod` goal
          in case extra `compare` 0 of
               LT -> undefined
-              EQ -> Seq goal (Skip per_stitch <> SC)
+              EQ -> Seq goal (Dec per_stitch <> SC)
               GT ->
                 let st_spacing = goal `div` extra
                     extra_end = goal `mod` extra
-                 in Seq extra (Seq (st_spacing - 1) (Skip per_stitch <> SC) <> Skip (per_stitch + 1) <> SC) <> Skip extra_end <> SC
+                 in Seq extra (Seq (st_spacing - 1) (Dec per_stitch <> SC) <> Dec (per_stitch + 1) <> SC) <> Dec extra_end <> SC
 
 neighbours :: [(Float, Float, Float)] -> [(Int, Int, Int)] -> [[Int]]
 neighbours vs [] = replicate (length vs) []
@@ -166,7 +193,7 @@ parseTriangle = triple . map read . take 3 . drop 1 . words
 
 main :: IO ()
 main = do
-  f <- readFile "/home/mark/Documents/hackathon/crochet/data/sphere2.off"
+  f <- readFile "/home/mark/Documents/hackathon/crochet/data/untitled.off"
   let lines_of_f = filter (not . null) (lines f)
   let (n_verts : n_faces : n_dontknow : _) :: [Int] = map read $ words (lines_of_f !! 1)
   let vs = map parseVertex $ take n_verts (drop 2 lines_of_f)
